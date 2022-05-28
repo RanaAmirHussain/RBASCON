@@ -1,0 +1,550 @@
+﻿$(document).ready(function () {
+    var mapHeight = getSetHeight();
+
+    function getSetHeight() {
+        var cont = $('#container');
+        cont.css('height', cont.attr('height'));
+        return cont.attr('height');
+    }
+
+    var debug = false;
+    if (debug) var start = new Date().getTime();
+
+    //$('#wrapper').fadeTo(0, 0);
+    $('#wrapper').hide();
+
+    /* Config */
+    var searchTriggerLength = 3;
+    var maxSearchResults = 8;
+    var scrollPixelInt = 150;
+    /*End Config */
+
+
+
+    var paper = Raphael('container', 950, mapHeight);
+    var lightbox = paper.rect(0, 0, 950, mapHeight).attr({ 'fill-opacity': '0' });
+    var modal = $('#modal');
+    var buildingHover = false;
+    var currentBuildingId = "";
+    var lockMode = false;
+    var lockModeTimeout = '';
+
+    var buildingObj = [];
+    var isIDevice = function () {
+        if ((navigator.userAgent.toLowerCase().indexOf("ipad") > -1) || (navigator.userAgent.toLowerCase().indexOf("iphone") > -1) || (navigator.userAgent.toLowerCase().indexOf("ipod") > -1)) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    //CHECKING IF CURRENT YEAR OR ARCHIVED VERSION
+    var projectsJSONUrl = '/TurnerCity/GetProjectsInfo';
+    var urlArr = window.location.pathname.split('/');
+    if (urlArr[urlArr.length - 1].toLowerCase() != 'turnercity' && urlArr[urlArr.length - 1].toLowerCase() != '') {
+        projectsJSONUrl += '?year=' + (parseInt(urlArr[urlArr.length - 1]) + 1);
+    }
+
+    $.ajax({ url: projectsJSONUrl, dataType: 'json' }).done(function (data) {
+        if (data.length > 0) {
+            var buildingDict = new Array();
+            var tempId = 0;
+
+            var percentBar = $('#percent-bar div');
+            var percentLabel = $('#percent-label');
+            var loadingStatus = $('#loading .status');
+            loadingStatus.html('Loading...');
+
+            // RECURSIVE FUNCTION TO KEEP BROWSER FROM FREEZING
+            var buildBuildings = function () {
+
+                var bData = data[tempId]
+                //BUILDING QUAD EXCEPTIONS 
+                var quad = '';
+                var offset = 0;
+                if (bData.marketingStoryId == '74') {
+                    quad = 'top';
+                    offset = -140;
+                };
+
+                // END EXCEPTIONS
+                tempId++;
+
+                bData.marketingStoryId = tempId;
+                if (bData.imageUrls.length == 0) bData.imageUrls[0] = "/Content/Images/turner.gif";
+                buildingDict[bData.marketingStoryId] = bData;
+                buildingObj[bData.marketingStoryId] = new building(bData, quad, offset);
+                if (tempId < data.length) {
+                    var percent = Math.floor((tempId * 100) / data.length);
+                    percentBar.css('width', percent + '%');
+                    percentLabel.html(percent + '%');
+
+                    setTimeout(function () { buildBuildings(); }, 0);
+
+                } else {
+                    completeLoad();
+
+                    if (debug) {
+                        var end = new Date().getTime();
+                        var time = (end - start) / 1000;
+                        alert('load time: ' + time);
+                    }
+                }
+            }
+            percentBar.parent().show();
+            buildBuildings();
+
+            new searchBox('#search', data, buildingDict)
+        } else {
+            $('#loading .status').html('Error loading data. No building data found.');
+        }
+
+    }).error(function () { $('#loading .status').html('Error loading data.'); })
+
+
+
+
+    var exitLockMode = function () {
+        lightbox.animate({ 'fill-opacity': '0' }, 500);
+        modal.fadeOut(200);
+        $('.result').fadeTo(300, 1);
+        $('.result').removeClass('active');
+        lockMode = false;
+        clearTimeout(lockModeTimeout);
+    }
+    var enterLockMode = function (triggerElem) {
+        lightbox.toBack();
+        lightbox.attr({ 'fill-opacity': '0', 'fill': '#000' });
+        lightbox.animate({ 'fill-opacity': '.8' }, 300);
+        lockModeTimeout = setTimeout(function () { exitLockMode(); }, 5000);
+        buildingObj[currentBuildingId].setModalPosition();
+        buildingObj[currentBuildingId].populateModal();
+        modal.stop(false, true).fadeIn(300);
+        $('.result').not(triggerElem).stop(false, true).fadeTo(300, .3);
+        lockMode = true;
+    }
+
+    var building = new Class({
+        timeoutInt: 300,
+        path: "",
+        bSet: "",
+        quadArea: "",
+        showModalTiemr: "",
+        hoverOutTimer: "",
+        hoverOutTimerModal: "",
+        id: "",
+        bData: {},
+        quadArea: '',
+        offset: 0,
+        initialize: function (bData, quadArea, offset) {
+            this.bData = bData;
+            this.path = bData.svgPath;
+            this.id = bData.marketingStoryId;
+            if (typeof quadArea != 'undefined') this.quadArea = quadArea;
+            if (typeof offset != 'undefined') this.offset = offset;
+            this.build();
+        },
+        build: function () {
+            var innerValues = { fill: "#fbdf68", "stroke-opacity": 0, "fill-opacity": 0.0, "cursor": "pointer" };
+            var glowValues = { color: "#ed8b33", width: 20, fill: false, opacity: 0.8, offsetx: 0, "cursor": "pointer" };
+            var b = paper.path(this.path);
+            var bInner = b.attr(innerValues);
+            var bGlow = bInner.glow(glowValues).hide();
+            this.bSet = paper.set();
+            this.bSet.push(bInner, bGlow);
+            this.setBuildingHover();
+        },
+        setBuildingHover: function () {
+            var self = this;
+            this.bSet.hover(
+				function (event) {
+				    if (!lockMode) {
+				        buildingHover = true;
+				        if (currentBuildingId != self.id) {
+				            if (currentBuildingId != '') buildingObj[currentBuildingId].unhighlight(0);
+				            self.populateModal();
+				            self.setModalPosition(event, self);
+				        }
+				        currentBuildingId = self.id;
+
+				        clearTimeout(self.hoverOutTimerModal);
+				        clearTimeout(self.hoverOutTimer);
+				        //modal.show();
+				        self.highlight(0);
+				    }
+
+				}, function () {
+				    if (!lockMode) {
+				        buildingHover = false;
+				        self.hoverOutTimer = setTimeout(function () {
+				            self.hoverOutAction();
+				        }, self.timeoutInt);
+				    }
+				}, this.self
+			);
+			this.bSet.click(function(event){
+				modal.show();
+			});
+        },
+        highlight: function (fadeInt) {
+
+            this.bSet.animate({ "fill-opacity": 0.5 }, fadeInt);
+            $(this.bSet).each(function (i, el) { el.show() });
+        },
+        unhighlight: function (fadeInt) {
+            this.bSet.animate({ "fill-opacity": 0.0 }, fadeInt);
+            this.bSet[1].hide();
+        },
+        hoverOutAction: function () {
+
+            this.unhighlight();
+            if (!buildingHover) modal.hide();
+
+
+        },
+        setModalPosition: function (event, self) {
+            if (this.quadArea == '') this.quadArea = this.getQuad();
+            var bY = this.bSet.getBBox().y;
+            var bX = this.bSet.getBBox().x;
+            var bWidth = this.bSet.getBBox().width;
+            var bHeight = this.bSet.getBBox().height;
+            if (this.quadArea == "top") {
+                modal.find('.arrow div').attr('class', 'upArrow');
+                modal.css('top', (bY + bHeight + 24) + this.offset);
+                modal.css('left', (bX - (300 - (bWidth / 2))));
+            } else if (this.quadArea == "bottom") {
+                modal.find('.arrow div').attr('class', 'downArrow');
+                modal.css('top', (bY - 300 + this.offset));
+                modal.css('left', (bX - (300 - (bWidth / 2))));
+            } else if (this.quadArea == "left") {
+                modal.find('.arrow div').attr('class', 'leftArrow');
+                modal.css('top', (bY - 120));
+                modal.css('left', (bX + bWidth + 24));
+            } else if (this.quadArea == "right") {
+                modal.find('.arrow div').attr('class', 'rightArrow');
+                modal.css('top', (bY - 120));
+                modal.css('left', (bX - 650));
+            }
+        },
+        getQuad: function () {
+            var x = this.bSet.getBBox().x;
+            var y = this.bSet.getBBox().y;
+            if (x < 0) x = 0;
+            if (y < 0) y = 0;
+            var quad = "";
+            if (x >= 0 && y >= 40 && x <= 220 && y <= mapHeight) {
+                quad = "left";
+            } else if (x >= 720 && y >= 40 && x <= 951 && y <= mapHeight) {
+                quad = "right";
+            } else if (x >= 0 && y >= 0 && x <= 720 && y <= 260) {
+                quad = "top";
+            } else if (x > 220 && y >= 260 && x <= 720 && y <= mapHeight) {
+                quad = "bottom";
+            };
+            return quad;
+        },
+        populateModal: function () {
+            var contentArea = modal.find(".right");
+            contentArea.find(".scrollable").stop(true, true).css("margin-top", "0px");
+            contentArea.find("#name h2").html(this.bData.name);
+            contentArea.find("#location").html(cleanUpCommas(this.bData.location));
+            contentArea.find("#client").html(this.bData.client);
+            contentArea.find("#architect").html(this.bData.architect);
+            contentArea.find("#seeMoreLink").attr("href", this.bData.detailPageUrl);
+            var attributes = "";
+            attrLength = this.bData.attributes.length;
+            $(this.bData.attributes).each(function (i, attr) {
+                attributes = attributes + '<a href="' + attr.href + '" target="_blank" >' + attr.title + '</a>';
+                if ((i + 1) != attrLength) attributes = attributes + ', ';
+            });
+            contentArea.find("#attributes").html(attributes);
+            if (this.bData.imageUrls.length > 1) {
+                this.setupSlideshow();
+
+            } else {
+                modal.find("#imageSlideshow .slides_container").html('<img src="http://www.turnerconstruction.com' + this.bData.imageUrls[0] + '" />');
+                modal.find("#imageSlideshow .slidesControl").hide();
+            };
+            setTimeout(function () { checkScrollPosition(); }, 0);
+
+        },
+        setupSlideshow: function () {
+            var slideshowHtml = "";
+            modal.find("#imageSlideshow .slidesControl").show();
+            $(this.bData.imageUrls).each(function (i, image) {
+                slideshowHtml = slideshowHtml + '<img src="http://www.turnerconstruction.com' + image + '" />';
+            });
+
+            modal.find("#imageSlideshow .slides_container").html(slideshowHtml);
+            modal.find("#imageSlideshow").slides({
+                generatePagination: false,
+                preload: true,
+                play: 5000,
+                next: 'nextSlide',
+                prev: 'previousSlide',
+                effect: 'fade',
+                crossfade: true,
+                preloadImage: '/content/images/turnercity/loading.gif'
+
+            });
+
+        }
+    })
+
+
+
+
+    $(modal).hover(
+		function (e) {
+		    clearTimeout(buildingObj[currentBuildingId].hoverOutTimerModal);
+		    clearTimeout(buildingObj[currentBuildingId].hoverOutTimer);
+		    clearTimeout(lockModeTimeout);
+		    $('#search-results').fadeOut(400);
+		}, function (e) {
+		    buildingObj[currentBuildingId].hoverOutAction();
+		    exitLockMode();
+		}
+	);
+    $(modal).find('.close-button').click(function (e) {
+        e.preventDefault;
+        buildingObj[currentBuildingId].hoverOutAction();
+        exitLockMode();
+    });
+    var isScrolling = false;
+    var scrollRegion = $('#modal .scrollable');
+    var checkScrollPosition = function () {
+        var marginTop = parseInt(scrollRegion.css('margin-top').replace('px', ''));
+        var cssHeight = 220;
+        var height = scrollRegion.height();
+        if (marginTop < 0) {
+            $('#modal #up-scroll').show();
+        } else {
+            $('#modal #up-scroll').hide();
+        }
+
+        if (marginTop > (0 - height + 200) && height > cssHeight) {
+            $('#modal #down-scroll').show();
+        } else {
+            $('#modal #down-scroll').hide();
+        }
+
+    };
+
+    $('#down-scroll').click(function (e) {
+        if (!isScrolling) {
+            e.preventDefault();
+            var currentTop = parseInt(scrollRegion.css('margin-top').replace('px', ''));
+            var height = scrollRegion.height();
+            if (currentTop > (0 - height + 200)) {
+                isScrolling = true;
+                scrollRegion.animate({ 'margin-top': (currentTop - scrollPixelInt) + 'px' }, 800, 'easeOutQuad', function () { isScrolling = false; checkScrollPosition(); });
+            };
+        };
+    });
+
+    $('#up-scroll').click(function (e) {
+        if (!isScrolling) {
+            e.preventDefault();
+            var currentTop = parseInt(scrollRegion.css('margin-top').replace('px', ''));
+            var height = scrollRegion.height();
+            if (currentTop < 0) {
+                isScrolling = true;
+                scrollRegion.animate({ 'margin-top': (currentTop + scrollPixelInt) + 'px' }, 800, 'easeOutQuad', function () { isScrolling = false; checkScrollPosition(); });
+            };
+        }
+    });
+
+    var cleanUpCommas = function (location) {
+
+        while ($.trim(location.substring(0, 1)) == ',') {
+            location = $.trim(location.substring(1));
+        }
+
+        if (location.indexOf(', ,') > -1) {
+            location = location.replace(', ,', ',')
+        };
+
+        return location;
+    }
+
+
+    var searchBox = new Class({
+        searchElem: '',
+        data: [],
+        loadingImage: '',
+        searchResultsDiv: '',
+        resultList: '',
+        clear: '',
+        input: '',
+        dict: [],
+        currentPage: 1,
+        totalPages: 0,
+        initialize: function (selector, data, dict) {
+            this.searchElem = $(selector);
+            this.loadingImage = '';
+            this.input = this.searchElem.find('input');
+            this.searchResultsDiv = $('#search-results');
+            this.resultsList = this.searchResultsDiv.find('.results-list');
+            this.clear = this.searchElem.find('.search-clear');
+            this.data = data;
+            this.dict = dict;
+            this.addKeyEvent();
+            this.addClearEvent();
+            this.addFocusEvent();
+            this.addPagerEvents();
+
+        },
+        addPagerEvents: function () {
+            var self = this;
+            $('#next-page').click(function (e) {
+                e.preventDefault();
+                self.currentPage++;
+                self.searchData($(self.input).val());
+                exitLockMode();
+
+            }, this.self);
+            $('#back-page').click(function (e) {
+                e.preventDefault();
+                self.currentPage--;
+                self.searchData($(self.input).val());
+                exitLockMode();
+            }, this.self);
+
+        },
+        addFocusEvent: function () {
+            this.input.bind('focus click', function (e) {
+                if ($(this).val().length >= searchTriggerLength) {
+                    $('#search-results').show();
+                }
+
+            });
+        },
+        addResultClick: function () {
+            var self = this;
+            var currentBuilding = buildingObj[currentBuildingId];
+            this.searchResultsDiv.find('.result').click(function (e) {
+                if (!lockMode) {
+                    enterLockMode(this);
+                } else {
+                    exitLockMode();
+                };
+            }, this.self);
+
+            this.searchResultsDiv.find('.result').bind('mousemove', function (e) {
+                if (!lockMode) {
+                    var id = $(this).find('.buildingId').val();
+                    $(this).addClass('active');
+                    if (currentBuildingId != '') buildingObj[currentBuildingId].unhighlight(0);
+                    currentBuildingId = id;
+                    currentBuilding = buildingObj[currentBuildingId];
+                    currentBuilding.highlight(0);
+                    if (isIDevice()) enterLockMode(this);
+                }
+
+            }, this.self);
+
+            this.searchResultsDiv.find('.result').mouseleave(function (e) {
+                if (!lockMode) $(this).removeClass('active');
+            });
+
+        },
+        addClearEvent: function () {
+            var self = this;
+            this.clear.click(function (e) {
+                self.searchData('');
+                self.input.val('');
+            }, this.self);
+        },
+        addKeyEvent: function () {
+            var self = this;
+            this.input.keyup(function () {
+                if ($(this).val().length >= searchTriggerLength) {
+                    self.currentPage = 1;
+                    self.searchData($(this).val());
+
+                } else {
+                    self.searchData('');
+
+                }
+            }, this.self);
+        },
+        searchData: function (val) {
+            var valSplit = val.toLowerCase().split(' ');
+            var resultStart = (this.currentPage == 1) ? 0 : ((this.currentPage - 1) * maxSearchResults);
+            if ($.trim(valSplit) != '') {
+                var result = [];
+
+                var match = true;
+                var matchTotal = 0;
+                this.data.each(function (building, index) {
+                    match = true;
+                    valSplit.each(function (keyword) {
+                        if (building.search.toLowerCase().indexOf(keyword) == -1) {
+                            match = false;
+                        };
+
+                    });
+                    if (match) matchTotal++;
+
+                    if (match && result.length < maxSearchResults && matchTotal > resultStart) { result.push(building); };
+
+                });
+                this.totalPages = Math.ceil(matchTotal / maxSearchResults);
+                var self = this;
+                self.searchResultsDiv.find('.results-header').html(matchTotal + ' RESULTS FOR "' + $.trim(val));
+                self.searchResultsDiv.find('.pager .label').html((this.currentPage) + ' of ' + (this.totalPages));
+
+                //Hide Pager
+
+                var pager = this.searchResultsDiv.find('.pager');
+
+                if (this.totalPages <= 1 || matchTotal <= maxSearchResults) {
+                    pager.hide();
+                } else {
+
+                    if (!pager.is(':visible')) pager.show();
+                }
+
+
+                //Hide next button 				
+                if (this.totalPages > 1 && this.currentPage < this.totalPages) {
+                    if (!$('#next-page').is(':visible')) $('#next-page').show();
+                } else {
+                    $('#next-page').hide();
+                };
+
+                //hide back button
+                if (this.currentPage > 1) {
+                    if (!$('#back-page').is(':visible')) $('#back-page').show();
+                } else {
+                    $('#back-page').hide();
+                }
+
+                self.resultsList.html('')
+
+
+
+                $.each(result, function (i, building) {
+                    self.resultsList.html(self.resultsList.html() + '<div class="result"><img src="http://www.turnerconstruction.com' + building.imageUrls[0].toLowerCase().replace('width=375&height=250', 'width=71&height=46').replace('crop=false', 'crop=true') + '"  /><div class="title">' + building.name + '<br /><span>' + cleanUpCommas(building.location) + '</div><input type="hidden" class="buildingId" value="' + building.marketingStoryId + '" />');
+                }, this.self);
+
+                this.searchResultsDiv.show();
+                this.clear.show();
+                this.addResultClick();
+            } else {
+                this.resultsList.html('');
+                this.searchResultsDiv.hide();
+                this.clear.hide();
+            }
+
+
+        }
+
+    });
+
+    var completeLoad = function () {
+        $('#loading').hide();
+        $('#wrapper').show();
+    }
+
+});

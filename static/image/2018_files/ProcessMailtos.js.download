@@ -1,0 +1,22 @@
+﻿var ProcessMailtos = {
+	domainKey: [],
+	load: function (domainKey) {
+		var self = this;
+		this.domainKey = $(domainKey);
+		$('.contact-list a').click(function () { self.changeEmailDomain(this) }, this.self);
+	},
+	changeEmailDomain: function (e) {
+		var anchor = $(e);
+		this.domainKey.each(function (i, key) {
+			var spamDomain = key.split(':')[0].toLowerCase();
+			var realDomain = key.split(':')[1];
+			if (anchor.attr('href').toLowerCase().indexOf(spamDomain) > -1) {
+				anchor.attr('href', anchor.attr('href').split('@')[0] + '@' + realDomain);
+			}
+		});
+	}
+}
+
+$(document).ready(function () {
+	ProcessMailtos.load(['no-spam.com:tcco.com']);
+});

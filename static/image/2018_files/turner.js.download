@@ -1,0 +1,138 @@
+﻿$(document).ready(function () {
+	$('label.overlabel').overlabel();
+	$("ul.box-blue-list, #content-side ul.featured-projects-list, #left-side ul.featured-projects-list").each(function () {
+		$(">li", this).equalizeCols();
+	});
+	$('.carousel-div').each(function () {
+		var oRoot = $(this);
+		oRoot.data('animating', false);
+		var oList = $('.carousel-list', oRoot);
+		var oItems = $('>li', oList);
+		if (oItems.length > 1) {
+			if (oItems.length < 3) {
+				oList.append(oList.html());
+				oItems = $('>li', oList);
+			}
+			oList.width(oItems.length * 707);
+			$('.prev-link', oRoot).click(function () {
+				if (oRoot.data('animating') == false) {
+					oRoot.data('animating', true);
+					oList.css({ left: -707 });
+					$('>li:first-child', oList).before($('>li:last-child', oList));
+					oList.animate({ left: 0 }, 500, function () {
+						oRoot.data('animating', false);
+					});
+				}
+			});
+			$('.next-link', oRoot).click(function () {
+				if (oRoot.data('animating') == false) {
+					oRoot.data('animating', true);
+					oList.animate({ left: -707 }, 500, function () {
+						$('>li:last-child', oList).after($('>li:first-child', oList));
+						oList.css({ left: 0 });
+						oRoot.data('animating', false);
+					});
+				}
+			});
+		} else {
+			$('.prev-link, .next-link', oRoot).hide();
+		}
+	});
+	$('.slideshow-div').each(function () {
+		var oRoot = $(this);
+		oRoot.data('animating', false);
+		oRoot.data('current', 0);
+		var oList = $('.slideshow-list', oRoot);
+		var oItems = $('>li', oList);
+		if (oItems.length > 1) {
+			if (oItems.length < 3) {
+				oList.append(oList.html());
+				oItems = $('>li', oList);
+			}
+			$('.slideshow-thumb-list>li>a').click(function () {
+				try {
+					var idx = $(this).parent().index();
+					var idxPrev = oRoot.data('current');
+					if (idx != idxPrev) {
+						$(oItems[idxPrev]).animate({ opacity: 0 }, 500, function () {
+							$(this).css({ 'z-index': 0 });
+						});
+						$(oItems[idx]).css({ 'z-index': 99, opacity: 0 }).animate({ opacity: 1 }, 250);
+						oRoot.data('current', idx);
+						$('.slideshow-thumb-list>li').removeClass('current');
+						$(this).parent().addClass('current');
+					}
+				} catch (ex) {
+					alert(ex);
+				}
+			});
+			$('.prev-link', oRoot).click(function () {
+				var idx = oRoot.data('current', idx);
+				var items = $('.slideshow-thumb-list>li');
+				var prev = $(items[idx]).prev();
+				if (idx == 0) { prev = items.last(); }
+				$('>a', prev).click();
+			});
+			$('.next-link', oRoot).click(function () {
+				var idx = oRoot.data('current', idx);
+				var items = $('.slideshow-thumb-list>li');
+				var next = $(items[idx]).next();
+				if (idx == (items.length - 1)) { next = items.first(); }
+				$('>a', next).click();
+			});
+		} else {
+			$('.prev-link, .next-link', oRoot).hide();
+		}
+	});
+	/*remove skype css classes	*/
+	window.setTimeout(function () {
+		$('.skype_pnh_container').html('');
+		$('.skype_pnh_print_container').removeClass('skype_pnh_print_container');
+	}, 800);
+});
+(function ($) {
+    /* = plug-in : OVERLABEL */
+    $.fn.overlabel = function (options) {
+        var opts = $.extend({}, $.fn.overlabel.defaults, options);
+        var selection = this.filter('label[for]').map(function () {
+            var label = $(this);
+            var id = label.attr('for');
+            var field = $('#' + id);
+            if (!field) return;
+            var o = $.meta ? $.extend({}, opts, label.data()) : opts;
+            label.addClass(o.label_class);
+            var hide_label = function () { label.css(o.hide_css) };
+            var show_label = function () { this.value || label.css(o.show_css) };
+            $(field)
+					.parent().addClass(o.wrapper_class).end()
+					.focus(hide_label).blur(show_label).each(hide_label).each(show_label);
+            return this;
+        });
+        return opts.filter ? selection : selection.end();
+    };
+    $.fn.overlabel.defaults = {
+        label_class: 'overlabel-apply',
+        wrapper_class: 'overlabel-wrapper',
+        hide_css: { 'display': 'none' },
+        show_css: { 'display': 'block' },
+        filter: false
+    };
+	/* = plug-in : EQUALIZE */
+	$.fn.equalizeCols = function(){
+		var height = 0,
+			reset = $.browser.msie ? "1%" : "auto";
+  
+		return this
+			.css("height", reset)
+			.each(function() {
+				height = Math.max(height, $(this).outerHeight(true));
+			})
+			.css("height", height)
+			.each(function() {
+				var h = $(this).outerHeight(true);
+				if (h > height) {
+					$(this).css("height", height - (h - height));
+				};
+			});	
+	};
+})(jQuery);
